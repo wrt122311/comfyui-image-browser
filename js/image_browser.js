@@ -23,7 +23,6 @@ class ImageBrowserWidget {
         this.currentSort = "name_asc";
         this.currentDirectory = "";
         this.imageList = [];
-        this.masonryColumns = 4;
 
         this.container = document.createElement("div");
         this.container.className = "image-browser-container";
@@ -150,31 +149,13 @@ class ImageBrowserWidget {
 
             const imageExts = ["jpg", "jpeg", "png", "webp", "bmp", "gif"];
 
-            const dirPath = e.target.files[0].webkitRelativePath.split("/")[0];
-
-            try {
-                const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    if (data.images && data.images.length > 0) {
-                        this.currentDirectory = dirPath;
-                        this.dirInput.value = dirPath;
-                        this._updateNodeValue("directory", dirPath);
-                        this.imageList = data.images;
-                        this._renderGrid();
-                        this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
-                        return;
-                    }
-                }
-            } catch (err) {}
-
             this.imageList = [];
             for (const file of e.target.files) {
                 const ext = file.name.split(".").pop().toLowerCase();
                 if (imageExts.includes(ext)) {
                     this.imageList.push({
                         name: file.name,
-                        path: file.webkitRelativePath,
+                        path: file.webkitRelativePath || file.name,
                         url: URL.createObjectURL(file),
                         size: file.size,
                         type: ext,
@@ -183,11 +164,27 @@ class ImageBrowserWidget {
                 }
             }
 
+            if (this.imageList.length === 0) return;
+
+            const dirPath = e.target.files[0].webkitRelativePath.split("/")[0];
             this.currentDirectory = dirPath;
             this.dirInput.value = dirPath;
             this._updateNodeValue("directory", dirPath);
             this._renderGrid();
-            this.statusLabel.textContent = `本地: ${this.imageList.length} 张图片`;
+            this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
+
+            try {
+                const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.images && data.images.length > 0) {
+                        this.imageList = data.images;
+                        this._updateNodeValue("directory", dirPath);
+                        this._renderGrid();
+                        this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
+                    }
+                }
+            } catch (err) {}
         });
         input.click();
     }
@@ -220,13 +217,12 @@ class ImageBrowserWidget {
     _renderGrid() {
         this.gridContainer.innerHTML = "";
         if (this.imageList.length === 0) {
-            this.gridContainer.innerHTML = '<div style="color:#888;text-align:center;padding:40px;">无图片</div>';
+            this.gridContainer.innerHTML = '<div style="color:#888;text-align:center;padding:40px;position:absolute;left:50%;transform:translateX(-50%);">无图片</div>';
+            this.gridContainer.style.height = "100px";
             return;
         }
 
         this._masonryItems = [];
-        const GAP = 3;
-        const COL_MIN_WIDTH = 90;
 
         this.imageList.forEach((imgInfo, idx) => {
             const wrapper = document.createElement("div");
@@ -246,16 +242,20 @@ class ImageBrowserWidget {
             wrapper.appendChild(img);
             wrapper.addEventListener("click", (e) => this._onImageClick(e, idx, imgInfo));
 
-            this._masonryItems.push({ el: wrapper, img: img, loaded: false });
+            this._masonryItems.push({ el: wrapper, img: img, loaded: false, aspectRatio: 1 });
             this.gridContainer.appendChild(wrapper);
 
             img.addEventListener("load", () => {
                 this._masonryItems[idx].loaded = true;
-                this._masonryItems[idx].aspectRatio = img.naturalWidth / img.naturalHeight;
+                if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                    this._masonryItems[idx].aspectRatio = img.naturalWidth / img.naturalHeight;
+                }
                 this._layoutMasonry();
             });
             img.addEventListener("error", () => {
                 wrapper.style.display = "none";
+                this._masonryItems[idx].loaded = false;
+                this._layoutMasonry();
             });
         });
 
@@ -282,22 +282,18 @@ class ImageBrowserWidget {
             const x = minCol * (colWidth + GAP);
             const y = colHeights[minCol];
 
-            const aspectRatio = item.aspectRatio || (item.img.naturalWidth / item.img.naturalHeight) || 1;
-            const imgHeight = colWidth / aspectRatio;
-            const totalHeight = item.loaded ? imgHeight : 100;
+            const itemHeight = item.loaded ? (colWidth / item.aspectRatio) : (colWidth / item.aspectRatio || 100);
 
             item.el.style.left = x + "px";
             item.el.style.top = y + "px";
             item.el.style.width = colWidth + "px";
+            item.el.style.height = itemHeight + "px";
 
-            if (item.loaded) {
-                item.el.style.height = totalHeight + "px";
-            }
-
-            colHeights[minCol] = y + totalHeight + GAP;
+            colHeights[minCol] = y + itemHeight + GAP;
         }
 
-        this.gridContainer.style.height = Math.max(...colHeights) + "px";
+        const maxHeight = Math.max(...colHeights);
+        this.gridContainer.style.height = (maxHeight > 0 ? maxHeight : 200) + "px";
     }
 
     _onImageClick(e, idx, imgInfo) {
@@ -359,32 +355,20 @@ app.registerExtension({
 
             const browserWidget = new ImageBrowserWidget(this);
 
+            browserWidget.container.style.marginTop = "-30px";
+
             const hiddenWidgets = ["directory", "sort_by", "selected_images"];
             hiddenWidgets.forEach(name => {
                 const w = this.widgets?.find(w => w.name === name);
                 if (w) {
                     w.type = "hidden";
-                    w.computeSize = () => [0, -4];
-                }
-            });
-
-            requestAnimationFrame(() => {
-                hiddenWidgets.forEach(name => {
-                    const w = this.widgets?.find(w => w.name === name);
-                    if (w && w.el) {
+                    w.computeSize = () => [0, 0];
+                    if (w.el) {
                         w.el.style.display = "none";
+                        w.el.style.height = "0";
+                        w.el.style.margin = "0";
+                        w.el.style.padding = "0";
                     }
-                });
-                for (const w of (this.widgets || [])) {
-                    if (w.type === "hidden" && w.el) {
-                        w.el.style.display = "none";
-                    }
-                }
-                const domWidget = this.widgets?.find(w => w.name === "image_browser");
-                if (domWidget && domWidget.el) {
-                    domWidget.el.style.marginTop = "0px";
-                    domWidget.el.style.marginBottom = "0px";
-                    domWidget.el.lastChild && (domWidget.el.lastChild.style.margin = "0");
                 }
             });
 
