@@ -1,0 +1,2 @@
+class ImageBrowser:
+    pass
