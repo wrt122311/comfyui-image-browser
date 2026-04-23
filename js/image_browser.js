@@ -144,51 +144,43 @@ class ImageBrowserWidget {
     _openFolderPicker() {
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = "image/*";
-        input.multiple = true;
+        input.webkitdirectory = true;
         input.addEventListener("change", async (e) => {
             if (e.target.files.length === 0) return;
 
             const imageExts = ["jpg", "jpeg", "png", "webp", "bmp", "gif"];
-            const imageFiles = [...e.target.files].filter(f => {
-                const ext = f.name.split(".").pop().toLowerCase();
-                return imageExts.includes(ext);
-            });
 
-            if (imageFiles.length === 0) return;
+            const dirPath = e.target.files[0].webkitRelativePath.split("/")[0];
 
-            const dirPath = imageFiles[0].webkitRelativePath
-                ? imageFiles[0].webkitRelativePath.split("/").slice(0, -1).join("/")
-                : "";
-
-            if (dirPath) {
-                try {
-                    const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data.images && data.images.length > 0) {
-                            this.currentDirectory = dirPath;
-                            this.dirInput.value = dirPath;
-                            this._updateNodeValue("directory", dirPath);
-                            this.imageList = data.images;
-                            this._renderGrid();
-                            this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
-                            return;
-                        }
+            try {
+                const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.images && data.images.length > 0) {
+                        this.currentDirectory = dirPath;
+                        this.dirInput.value = dirPath;
+                        this._updateNodeValue("directory", dirPath);
+                        this.imageList = data.images;
+                        this._renderGrid();
+                        this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
+                        return;
                     }
-                } catch (err) {}
-            }
+                }
+            } catch (err) {}
 
             this.imageList = [];
-            for (const file of imageFiles) {
-                this.imageList.push({
-                    name: file.name,
-                    path: file.webkitRelativePath || file.name,
-                    url: URL.createObjectURL(file),
-                    size: file.size,
-                    type: file.name.split(".").pop().toLowerCase(),
-                    _localUrl: true,
-                });
+            for (const file of e.target.files) {
+                const ext = file.name.split(".").pop().toLowerCase();
+                if (imageExts.includes(ext)) {
+                    this.imageList.push({
+                        name: file.name,
+                        path: file.webkitRelativePath,
+                        url: URL.createObjectURL(file),
+                        size: file.size,
+                        type: ext,
+                        _localUrl: true,
+                    });
+                }
             }
 
             this.currentDirectory = dirPath;
@@ -373,6 +365,26 @@ app.registerExtension({
                 if (w) {
                     w.type = "hidden";
                     w.computeSize = () => [0, -4];
+                }
+            });
+
+            requestAnimationFrame(() => {
+                hiddenWidgets.forEach(name => {
+                    const w = this.widgets?.find(w => w.name === name);
+                    if (w && w.el) {
+                        w.el.style.display = "none";
+                    }
+                });
+                for (const w of (this.widgets || [])) {
+                    if (w.type === "hidden" && w.el) {
+                        w.el.style.display = "none";
+                    }
+                }
+                const domWidget = this.widgets?.find(w => w.name === "image_browser");
+                if (domWidget && domWidget.el) {
+                    domWidget.el.style.marginTop = "0px";
+                    domWidget.el.style.marginBottom = "0px";
+                    domWidget.el.lastChild && (domWidget.el.lastChild.style.margin = "0");
                 }
             });
 
