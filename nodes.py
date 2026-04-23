@@ -54,5 +54,67 @@ def sort_images(files, sort_by):
     return sorted(files, key=key, reverse=reverse)
 
 
+def load_image_as_tensor(image_path):
+    import torch
+    import numpy as np
+    from PIL import Image as PILImage
+    img = PILImage.open(image_path)
+    img = img.convert("RGB")
+    img_array = np.array(img).astype(np.float32) / 255.0
+    tensor = torch.from_numpy(img_array)
+    return tensor.unsqueeze(0)
+
+
 class ImageBrowser:
-    pass
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("IMAGE", "IMAGE_PATH")
+    FUNCTION = "browse"
+    CATEGORY = "image"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {"default": ""}),
+                "sort_by": (
+                    [
+                        "name_asc", "name_desc",
+                        "date_asc", "date_desc",
+                        "size_asc", "size_desc",
+                        "type_asc", "type_desc",
+                        "dimensions_asc", "dimensions_desc",
+                        "modified_asc", "modified_desc",
+                    ],
+                    {"default": "name_asc"},
+                ),
+                "selected_images": ("STRING", {"default": "[]"}),
+            }
+        }
+
+    def browse(self, directory, sort_by, selected_images):
+        import torch
+        selected_list = json.loads(selected_images) if selected_images else []
+
+        if not selected_list:
+            empty_tensor = torch.zeros((1, 64, 64, 3))
+            return (empty_tensor, "")
+
+        tensors = []
+        valid_paths = []
+        for img_path in selected_list:
+            if os.path.isfile(img_path):
+                try:
+                    t = load_image_as_tensor(img_path)
+                    tensors.append(t)
+                    valid_paths.append(img_path)
+                except Exception:
+                    continue
+
+        if not tensors:
+            empty_tensor = torch.zeros((1, 64, 64, 3))
+            return (empty_tensor, "")
+
+        batch = torch.cat(tensors, dim=0)
+        paths_str = json.dumps(valid_paths) if len(valid_paths) > 1 else valid_paths[0]
+        return (batch, paths_str)
