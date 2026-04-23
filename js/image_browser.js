@@ -28,6 +28,20 @@ class ImageBrowserWidget {
         this.container.className = "image-browser-container";
         this.container.style.cssText = "width:100%;height:100%;display:flex;flex-direction:column;background:#1a1a2e;border-radius:4px;overflow:hidden;";
 
+        const styleId = "image-browser-scrollbar-style";
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+.image-browser-grid::-webkit-scrollbar { width: 8px; }
+.image-browser-grid::-webkit-scrollbar-track { background: #1a1a2e; }
+.image-browser-grid::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+.image-browser-grid::-webkit-scrollbar-thumb:hover { background: #777; }
+.image-browser-grid { scrollbar-width: thin; scrollbar-color: #555 #1a1a2e; }
+`;
+            document.head.appendChild(style);
+        }
+
         this._buildUI();
     }
 
@@ -99,7 +113,7 @@ class ImageBrowserWidget {
 
     _buildGrid() {
         this.gridWrapper = document.createElement("div");
-        this.gridWrapper.style.cssText = "flex:1;overflow-y:auto;overflow-x:hidden;padding:4px;";
+        this.gridWrapper.style.cssText = "flex:1;overflow-y:auto;overflow-x:hidden;padding:4px;min-height:0;";
 
         this.gridContainer = document.createElement("div");
         this.gridContainer.className = "image-browser-grid";
