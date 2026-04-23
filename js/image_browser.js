@@ -38,6 +38,10 @@ class ImageBrowserWidget {
 .image-browser-scroll::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
 .image-browser-scroll::-webkit-scrollbar-thumb:hover { background: #888; }
 .image-browser-scroll { scrollbar-width: thin; scrollbar-color: #555 #151525; }
+.dir-list::-webkit-scrollbar { width: 8px; }
+.dir-list::-webkit-scrollbar-track { background: #1a1a2e; }
+.dir-list::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+.dir-list { scrollbar-width: thin; scrollbar-color: #555 #1a1a2e; }
 `;
             document.head.appendChild(style);
         }
@@ -82,7 +86,7 @@ class ImageBrowserWidget {
         this.folderBtn = document.createElement("button");
         this.folderBtn.textContent = "选择目录";
         this.folderBtn.style.cssText = "padding:4px 10px;background:#5a8f5a;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap;";
-        this.folderBtn.addEventListener("click", () => this._openFolderPicker());
+        this.folderBtn.addEventListener("click", () => this._showDirDialog("/"));
 
         this.sortSelect = document.createElement("select");
         this.sortSelect.style.cssText = "padding:3px 4px;background:#2a2a4a;color:#fff;border:1px solid #444;border-radius:3px;font-size:11px;max-width:120px;";
@@ -140,53 +144,171 @@ class ImageBrowserWidget {
         this.bottomBar.appendChild(this.statusLabel);
     }
 
-    _openFolderPicker() {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.webkitdirectory = true;
-        input.addEventListener("change", async (e) => {
-            if (e.target.files.length === 0) return;
+    _showDirDialog(currentPath) {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;";
 
-            const imageExts = ["jpg", "jpeg", "png", "webp", "bmp", "gif"];
+        const dialog = document.createElement("div");
+        dialog.style.cssText = "background:#1e1e2e;border:1px solid #555;border-radius:8px;width:680px;max-height:75vh;display:flex;flex-direction:column;";
 
-            this.imageList = [];
-            for (const file of e.target.files) {
-                const ext = file.name.split(".").pop().toLowerCase();
-                if (imageExts.includes(ext)) {
-                    this.imageList.push({
-                        name: file.name,
-                        path: file.webkitRelativePath || file.name,
-                        url: URL.createObjectURL(file),
-                        size: file.size,
-                        type: ext,
-                        _localUrl: true,
-                    });
-                }
-            }
+        const header = document.createElement("div");
+        header.style.cssText = "padding:10px 14px;border-bottom:1px solid #444;display:flex;align-items:center;gap:8px;flex-shrink:0;";
 
-            if (this.imageList.length === 0) return;
+        const title = document.createElement("span");
+        title.textContent = "选择目录";
+        title.style.cssText = "color:#fff;font-weight:bold;font-size:14px;white-space:nowrap;";
 
-            const dirPath = e.target.files[0].webkitRelativePath.split("/")[0];
-            this.currentDirectory = dirPath;
-            this.dirInput.value = dirPath;
-            this._updateNodeValue("directory", dirPath);
-            this._renderGrid();
-            this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
+        const pathDisplay = document.createElement("input");
+        pathDisplay.type = "text";
+        pathDisplay.value = currentPath;
+        pathDisplay.style.cssText = "flex:1;padding:5px 8px;background:#2a2a4a;color:#fff;border:1px solid #555;border-radius:3px;font-size:12px;";
+
+        const goBtn = document.createElement("button");
+        goBtn.textContent = "前往";
+        goBtn.style.cssText = "padding:5px 12px;background:#4a6fa5;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap;";
+        goBtn.addEventListener("click", () => loadDirs(pathDisplay.value));
+
+        const closeBtn = document.createElement("button");
+        closeBtn.textContent = "✕";
+        closeBtn.style.cssText = "padding:4px 8px;background:#c44;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px;";
+        closeBtn.addEventListener("click", () => overlay.remove());
+
+        header.appendChild(title);
+        header.appendChild(pathDisplay);
+        header.appendChild(goBtn);
+        header.appendChild(closeBtn);
+
+        const bodyArea = document.createElement("div");
+        bodyArea.style.cssText = "flex:1;display:flex;min-height:0;overflow:hidden;";
+
+        const dirList = document.createElement("div");
+        dirList.className = "dir-list";
+        dirList.style.cssText = "width:220px;overflow-y:auto;padding:6px;border-right:1px solid #333;flex-shrink:0;";
+
+        const previewArea = document.createElement("div");
+        previewArea.style.cssText = "flex:1;overflow-y:auto;padding:6px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:3px;align-content:start;";
+
+        bodyArea.appendChild(dirList);
+        bodyArea.appendChild(previewArea);
+
+        const footer = document.createElement("div");
+        footer.style.cssText = "padding:8px 14px;border-top:1px solid #444;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;";
+
+        const selectBtn = document.createElement("button");
+        selectBtn.textContent = "选择此目录";
+        selectBtn.style.cssText = "padding:6px 20px;background:#5a8f5a;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px;font-weight:bold;";
+        selectBtn.addEventListener("click", () => {
+            const selectedPath = pathDisplay.value;
+            this.currentDirectory = selectedPath;
+            this.dirInput.value = selectedPath;
+            this._updateNodeValue("directory", selectedPath);
+            this._loadImages();
+            overlay.remove();
+        });
+
+        footer.appendChild(selectBtn);
+
+        dialog.appendChild(header);
+        dialog.appendChild(bodyArea);
+        dialog.appendChild(footer);
+        overlay.appendChild(dialog);
+
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        let currentDirPath = currentPath;
+
+        async function loadDirs(path) {
+            currentDirPath = path || "/";
+            pathDisplay.value = currentDirPath;
+            dirList.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">加载中...</div>';
 
             try {
-                const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    if (data.images && data.images.length > 0) {
-                        this.imageList = data.images;
-                        this._updateNodeValue("directory", dirPath);
-                        this._renderGrid();
-                        this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
-                    }
+                const resp = await fetch(`/image_browser/browse?path=${encodeURIComponent(currentDirPath)}`);
+                const data = await resp.json();
+                pathDisplay.value = data.path || currentDirPath;
+                currentDirPath = data.path || currentDirPath;
+                dirList.innerHTML = "";
+
+                if (currentDirPath !== "/") {
+                    const parentPath = currentDirPath.split("/").slice(0, -1).join("/") || "/";
+                    const parentItem = document.createElement("div");
+                    parentItem.textContent = "📁 ..";
+                    parentItem.style.cssText = "padding:6px 8px;color:#ccc;cursor:pointer;border-radius:3px;font-size:12px;";
+                    parentItem.addEventListener("mouseenter", () => parentItem.style.background = "#333");
+                    parentItem.addEventListener("mouseleave", () => parentItem.style.background = "transparent");
+                    parentItem.addEventListener("click", () => loadDirs(parentPath));
+                    dirList.appendChild(parentItem);
                 }
-            } catch (err) {}
+
+                if (!data.dirs || data.dirs.length === 0) {
+                    const empty = document.createElement("div");
+                    empty.textContent = "无子目录";
+                    empty.style.cssText = "color:#888;text-align:center;padding:10px;font-size:11px;";
+                    dirList.appendChild(empty);
+                }
+
+                (data.dirs || []).forEach(dir => {
+                    const item = document.createElement("div");
+                    item.textContent = `📁 ${dir.name}`;
+                    item.style.cssText = "padding:6px 8px;color:#ccc;cursor:pointer;border-radius:3px;font-size:12px;";
+                    item.addEventListener("mouseenter", () => item.style.background = "#333");
+                    item.addEventListener("mouseleave", () => item.style.background = "transparent");
+                    item.addEventListener("click", () => loadDirs(dir.path));
+                    dirList.appendChild(item);
+                });
+
+                loadPreviews(currentDirPath);
+            } catch (e) {
+                dirList.innerHTML = '<div style="color:#f66;text-align:center;padding:20px;">加载失败</div>';
+            }
+        }
+
+        async function loadPreviews(dirPath) {
+            previewArea.innerHTML = '<div style="color:#888;grid-column:1/-1;text-align:center;padding:20px;font-size:11px;">加载预览...</div>';
+            try {
+                const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=name_asc`);
+                if (!resp.ok) { throw new Error("failed"); }
+                const data = await resp.json();
+                const images = (data.images || []).slice(0, 50);
+                previewArea.innerHTML = "";
+
+                if (images.length === 0) {
+                    previewArea.innerHTML = '<div style="color:#888;grid-column:1/-1;text-align:center;padding:20px;font-size:11px;">此目录无图片</div>';
+                    return;
+                }
+
+                images.forEach(img => {
+                    const thumb = document.createElement("div");
+                    thumb.style.cssText = "overflow:hidden;border-radius:3px;line-height:0;background:#2a2a4a;aspect-ratio:1;";
+
+                    const imgEl = document.createElement("img");
+                    imgEl.src = `/image_browser/view?path=${encodeURIComponent(img.path)}`;
+                    imgEl.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;";
+                    imgEl.loading = "lazy";
+                    imgEl.onerror = () => { thumb.style.display = "none"; };
+
+                    thumb.appendChild(imgEl);
+                    previewArea.appendChild(thumb);
+                });
+
+                if (data.images.length > 50) {
+                    const more = document.createElement("div");
+                    more.textContent = `+${data.images.length - 50} 更多`;
+                    more.style.cssText = "grid-column:1/-1;text-align:center;padding:6px;color:#aaa;font-size:11px;";
+                    previewArea.appendChild(more);
+                }
+            } catch (e) {
+                previewArea.innerHTML = '<div style="color:#888;grid-column:1/-1;text-align:center;padding:20px;font-size:11px;">预览不可用</div>';
+            }
+        }
+
+        document.body.appendChild(overlay);
+        loadDirs(currentPath);
+        pathDisplay.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") loadDirs(pathDisplay.value);
         });
-        input.click();
     }
 
     async _loadImages() {
@@ -282,7 +404,7 @@ class ImageBrowserWidget {
             const x = minCol * (colWidth + GAP);
             const y = colHeights[minCol];
 
-            const itemHeight = item.loaded ? (colWidth / item.aspectRatio) : (colWidth / item.aspectRatio || 100);
+            const itemHeight = colWidth / item.aspectRatio;
 
             item.el.style.left = x + "px";
             item.el.style.top = y + "px";
