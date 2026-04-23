@@ -144,43 +144,51 @@ class ImageBrowserWidget {
     _openFolderPicker() {
         const input = document.createElement("input");
         input.type = "file";
-        input.webkitdirectory = true;
+        input.accept = "image/*";
+        input.multiple = true;
         input.addEventListener("change", async (e) => {
             if (e.target.files.length === 0) return;
 
             const imageExts = ["jpg", "jpeg", "png", "webp", "bmp", "gif"];
+            const imageFiles = [...e.target.files].filter(f => {
+                const ext = f.name.split(".").pop().toLowerCase();
+                return imageExts.includes(ext);
+            });
 
-            const dirPath = e.target.files[0].webkitRelativePath.split("/")[0];
+            if (imageFiles.length === 0) return;
 
-            try {
-                const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    if (data.images && data.images.length > 0) {
-                        this.currentDirectory = dirPath;
-                        this.dirInput.value = dirPath;
-                        this._updateNodeValue("directory", dirPath);
-                        this.imageList = data.images;
-                        this._renderGrid();
-                        this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
-                        return;
+            const dirPath = imageFiles[0].webkitRelativePath
+                ? imageFiles[0].webkitRelativePath.split("/").slice(0, -1).join("/")
+                : "";
+
+            if (dirPath) {
+                try {
+                    const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(dirPath)}&sort=${this.currentSort}`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.images && data.images.length > 0) {
+                            this.currentDirectory = dirPath;
+                            this.dirInput.value = dirPath;
+                            this._updateNodeValue("directory", dirPath);
+                            this.imageList = data.images;
+                            this._renderGrid();
+                            this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
+                            return;
+                        }
                     }
-                }
-            } catch (err) {}
+                } catch (err) {}
+            }
 
             this.imageList = [];
-            for (const file of e.target.files) {
-                const ext = file.name.split(".").pop().toLowerCase();
-                if (imageExts.includes(ext)) {
-                    this.imageList.push({
-                        name: file.name,
-                        path: file.webkitRelativePath,
-                        url: URL.createObjectURL(file),
-                        size: file.size,
-                        type: ext,
-                        _localUrl: true,
-                    });
-                }
+            for (const file of imageFiles) {
+                this.imageList.push({
+                    name: file.name,
+                    path: file.webkitRelativePath || file.name,
+                    url: URL.createObjectURL(file),
+                    size: file.size,
+                    type: file.name.split(".").pop().toLowerCase(),
+                    _localUrl: true,
+                });
             }
 
             this.currentDirectory = dirPath;
@@ -239,16 +247,11 @@ class ImageBrowserWidget {
             } else {
                 img.src = `/image_browser/view?path=${encodeURIComponent(imgInfo.path)}`;
             }
-            img.style.cssText = "width:100%;display:block;";
+            img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;";
             img.loading = "lazy";
             img.draggable = false;
 
-            const nameLabel = document.createElement("div");
-            nameLabel.textContent = imgInfo.name;
-            nameLabel.style.cssText = "font-size:9px;color:#bbb;padding:2px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;";
-
             wrapper.appendChild(img);
-            wrapper.appendChild(nameLabel);
             wrapper.addEventListener("click", (e) => this._onImageClick(e, idx, imgInfo));
 
             this._masonryItems.push({ el: wrapper, img: img, loaded: false });
@@ -289,7 +292,7 @@ class ImageBrowserWidget {
 
             const aspectRatio = item.aspectRatio || (item.img.naturalWidth / item.img.naturalHeight) || 1;
             const imgHeight = colWidth / aspectRatio;
-            const totalHeight = item.loaded ? imgHeight + 16 : 100;
+            const totalHeight = item.loaded ? imgHeight : 100;
 
             item.el.style.left = x + "px";
             item.el.style.top = y + "px";
@@ -297,7 +300,6 @@ class ImageBrowserWidget {
 
             if (item.loaded) {
                 item.el.style.height = totalHeight + "px";
-                item.img.style.height = imgHeight + "px";
             }
 
             colHeights[minCol] = y + totalHeight + GAP;
