@@ -44,6 +44,21 @@ try:
                 return web.Response(body=f.read(), content_type=mime_type)
         except Exception as e:
             return web.Response(status=500, text=str(e))
+
+    @routes.get("/image_browser/browse")
+    async def browse_dirs_route(request):
+        path = request.rel_url.query.get("path", "/")
+        try:
+            if not path:
+                path = "/"
+            entries = []
+            for entry in sorted(os.listdir(path)):
+                full = os.path.join(path, entry)
+                if os.path.isdir(full):
+                    entries.append({"name": entry, "path": full, "type": "directory"})
+            return web.json_response({"path": path, "dirs": entries})
+        except Exception as e:
+            return web.json_response({"path": path, "dirs": [], "error": str(e)})
 except Exception:
     pass
 
