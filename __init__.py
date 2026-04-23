@@ -1,4 +1,7 @@
-from .nodes import ImageBrowser
+try:
+    from .nodes import ImageBrowser
+except ImportError:
+    from nodes import ImageBrowser
 
 NODE_CLASS_MAPPINGS = {
     "ImageBrowser": ImageBrowser,
