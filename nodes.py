@@ -54,6 +54,12 @@ def sort_images(files, sort_by):
     return sorted(files, key=key, reverse=reverse)
 
 
+def list_images(directory, sort_by):
+    files = scan_directory(directory)
+    sorted_files = sort_images(files, sort_by)
+    return json.dumps({"images": sorted_files})
+
+
 def load_image_as_tensor(image_path):
     import torch
     import numpy as np
