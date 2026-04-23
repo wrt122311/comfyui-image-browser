@@ -1,9 +1,10 @@
 try:
-    from .nodes import ImageBrowser, list_images
+    from .nodes import ImageBrowser, list_images, get_image
 except ImportError:
-    from nodes import ImageBrowser, list_images
+    from nodes import ImageBrowser, list_images, get_image
 
 import json
+import os
 
 NODE_CLASS_MAPPINGS = {
     "ImageBrowser": ImageBrowser,
@@ -15,16 +16,35 @@ NODE_DISPLAY_MAPPINGS = {
 
 WEB_DIRECTORY = "./js"
 
+try:
+    from server import PromptServer
+    from aiohttp import web
 
-def add_routes(server):
-    @server.routes.get("/image_browser/list")
+    routes = PromptServer.instance.routes
+
+    @routes.get("/image_browser/list")
     async def list_images_route(request):
         directory = request.rel_url.query.get("dir", "")
         sort_by = request.rel_url.query.get("sort", "name_asc")
         result = list_images(directory, sort_by)
-        from aiohttp import web
         data = json.loads(result) if isinstance(result, str) else result
         return web.json_response(data)
 
+    @routes.get("/image_browser/view")
+    async def view_image_route(request):
+        image_path = request.rel_url.query.get("path", "")
+        if not image_path or not os.path.isfile(image_path):
+            return web.Response(status=404, text="Image not found")
+        try:
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(image_path)
+            if not mime_type:
+                mime_type = "application/octet-stream"
+            with open(image_path, "rb") as f:
+                return web.Response(body=f.read(), content_type=mime_type)
+        except Exception as e:
+            return web.Response(status=500, text=str(e))
+except Exception:
+    pass
 
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_MAPPINGS", "add_routes"]
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_MAPPINGS"]

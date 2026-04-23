@@ -46,7 +46,7 @@ class ImageBrowserWidget {
 
         this.dirInput = document.createElement("input");
         this.dirInput.type = "text";
-        this.dirInput.placeholder = "选择目录路径...";
+        this.dirInput.placeholder = "选择目录路径（服务器绝对路径）...";
         this.dirInput.style.cssText = "flex:1;min-width:200px;padding:4px 8px;background:#2a2a4a;color:#fff;border:1px solid #444;border-radius:3px;";
         this.dirInput.addEventListener("change", () => {
             this.currentDirectory = this.dirInput.value;
@@ -55,9 +55,13 @@ class ImageBrowserWidget {
         });
 
         this.browseBtn = document.createElement("button");
-        this.browseBtn.textContent = "浏览";
+        this.browseBtn.textContent = "加载";
         this.browseBtn.style.cssText = "padding:4px 12px;background:#4a6fa5;color:#fff;border:none;border-radius:3px;cursor:pointer;";
-        this.browseBtn.addEventListener("click", () => this._openFolderPicker());
+        this.browseBtn.addEventListener("click", () => {
+            this.currentDirectory = this.dirInput.value;
+            this._updateNodeValue("directory", this.currentDirectory);
+            this._loadImages();
+        });
 
         this.sortSelect = document.createElement("select");
         this.sortSelect.style.cssText = "padding:4px;background:#2a2a4a;color:#fff;border:1px solid #444;border-radius:3px;";
@@ -97,59 +101,37 @@ class ImageBrowserWidget {
         this.counterLabel = document.createElement("span");
         this.counterLabel.textContent = "已选: 0";
 
-        this.bottomBar.appendChild(this.counterLabel);
-    }
+        this.statusLabel = document.createElement("span");
+        this.statusLabel.textContent = "";
+        this.statusLabel.style.cssText = "color:#aaa;";
 
-    _openFolderPicker() {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.webkitdirectory = true;
-        input.addEventListener("change", (e) => {
-            if (e.target.files.length > 0) {
-                const filePath = e.target.files[0].webkitRelativePath;
-                const dirPath = filePath.split("/")[0];
-                this.dirInput.value = dirPath;
-                this.currentDirectory = dirPath;
-                this._updateNodeValue("directory", dirPath);
-                this._loadImagesFromFileList(e.target.files);
-            }
-        });
-        input.click();
+        this.bottomBar.appendChild(this.counterLabel);
+        this.bottomBar.appendChild(this.statusLabel);
     }
 
     async _loadImages() {
         if (!this.currentDirectory) {
             this.imageList = [];
             this._renderGrid();
+            this.statusLabel.textContent = "请输入目录路径";
             return;
         }
+        this.statusLabel.textContent = "加载中...";
         try {
             const resp = await fetch(`/image_browser/list?dir=${encodeURIComponent(this.currentDirectory)}&sort=${this.currentSort}`);
+            if (!resp.ok) {
+                throw new Error(`HTTP ${resp.status}`);
+            }
             const data = await resp.json();
             this.imageList = data.images || [];
             this._renderGrid();
+            this.statusLabel.textContent = `共 ${this.imageList.length} 张图片`;
         } catch (e) {
+            console.error("[ImageBrowser] 加载失败:", e);
             this.imageList = [];
             this._renderGrid();
+            this.statusLabel.textContent = "加载失败，请检查目录路径是否正确";
         }
-    }
-
-    _loadImagesFromFileList(fileList) {
-        const imageExts = ["jpg", "jpeg", "png", "webp", "bmp", "gif"];
-        this.imageList = [];
-        for (const file of fileList) {
-            const ext = file.name.split(".").pop().toLowerCase();
-            if (imageExts.includes(ext)) {
-                const url = URL.createObjectURL(file);
-                this.imageList.push({
-                    name: file.name,
-                    path: file.webkitRelativePath || file.name,
-                    url: url,
-                    size: file.size,
-                });
-            }
-        }
-        this._renderGrid();
     }
 
     _renderGrid() {
@@ -165,14 +147,16 @@ class ImageBrowserWidget {
             wrapper.dataset.index = idx;
 
             const img = document.createElement("img");
-            img.src = imgInfo.url || `/view?filename=${encodeURIComponent(imgInfo.name)}&type=input`;
-            img.style.cssText = "width:100%;height:auto;display:block;";
+            const imgUrl = `/image_browser/view?path=${encodeURIComponent(imgInfo.path)}`;
+            img.src = imgUrl;
+            img.style.cssText = "width:100%;height:auto;display:block;min-height:60px;background:#2a2a4a;";
             img.loading = "lazy";
+            img.onerror = () => { img.style.display = "none"; };
 
             const nameLabel = document.createElement("div");
             nameLabel.textContent = imgInfo.name;
             nameLabel.style.cssText = "font-size:10px;color:#ccc;padding:2px 4px;background:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
-            nameLabel.title = imgInfo.name;
+            nameLabel.title = imgInfo.path;
 
             wrapper.appendChild(img);
             wrapper.appendChild(nameLabel);
@@ -225,6 +209,9 @@ class ImageBrowserWidget {
         if (widget) {
             widget.value = value;
         }
+        if (this.node.onPropertyChanged) {
+            this.node.onPropertyChanged(widgetName, value);
+        }
     }
 }
 
@@ -262,9 +249,30 @@ app.registerExtension({
                         browserWidget.selectedImages = [];
                         if (browserWidget.dirInput) browserWidget.dirInput.value = browserWidget.currentDirectory;
                         if (browserWidget.sortSelect) browserWidget.sortSelect.value = browserWidget.currentSort;
+                        if (browserWidget.currentDirectory) {
+                            browserWidget._loadImages();
+                        }
                     } catch (e) {}
                 },
             });
+
+            const origOnConfigure = this.onConfigure;
+            this.onConfigure = function (info) {
+                origOnConfigure?.apply(this, arguments);
+                if (info?.widgets_values) {
+                    const dirWidget = this.widgets?.find(w => w.name === "directory");
+                    const sortWidget = this.widgets?.find(w => w.name === "sort_by");
+                    const selWidget = this.widgets?.find(w => w.name === "selected_images");
+                    if (dirWidget?.value) {
+                        browserWidget.currentDirectory = dirWidget.value;
+                        if (browserWidget.dirInput) browserWidget.dirInput.value = dirWidget.value;
+                    }
+                    if (sortWidget?.value) {
+                        browserWidget.currentSort = sortWidget.value;
+                        if (browserWidget.sortSelect) browserWidget.sortSelect.value = sortWidget.value;
+                    }
+                }
+            };
         };
     },
 });

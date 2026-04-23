@@ -60,6 +60,12 @@ def list_images(directory, sort_by):
     return json.dumps({"images": sorted_files})
 
 
+def get_image(image_path):
+    if not image_path or not Path(image_path).is_file():
+        return None
+    return str(image_path)
+
+
 def load_image_as_tensor(image_path):
     import torch
     import numpy as np
@@ -100,9 +106,23 @@ class ImageBrowser:
 
     def browse(self, directory, sort_by, selected_images):
         import torch
-        selected_list = json.loads(selected_images) if selected_images else []
+        import logging
+        logger = logging.getLogger("ImageBrowser")
+
+        if not selected_images or selected_images == "[]":
+            logger.warning("No images selected, returning empty tensor")
+            empty_tensor = torch.zeros((1, 64, 64, 3))
+            return (empty_tensor, "")
+
+        try:
+            selected_list = json.loads(selected_images)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error("Failed to parse selected_images: %s, raw value: %r", e, selected_images)
+            empty_tensor = torch.zeros((1, 64, 64, 3))
+            return (empty_tensor, "")
 
         if not selected_list:
+            logger.warning("selected_list is empty after parsing")
             empty_tensor = torch.zeros((1, 64, 64, 3))
             return (empty_tensor, "")
 
@@ -114,13 +134,18 @@ class ImageBrowser:
                     t = load_image_as_tensor(img_path)
                     tensors.append(t)
                     valid_paths.append(img_path)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Failed to load image %s: %s", img_path, e)
                     continue
+            else:
+                logger.warning("Image file not found: %s", img_path)
 
         if not tensors:
+            logger.warning("No valid images loaded from %d paths", len(selected_list))
             empty_tensor = torch.zeros((1, 64, 64, 3))
             return (empty_tensor, "")
 
         batch = torch.cat(tensors, dim=0)
         paths_str = json.dumps(valid_paths) if len(valid_paths) > 1 else valid_paths[0]
+        logger.info("Loaded %d images successfully", len(valid_paths))
         return (batch, paths_str)
